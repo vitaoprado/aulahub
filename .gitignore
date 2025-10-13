@@ -1,0 +1,18 @@
+# dependências
+backend/node_modules/
+frontend/vite-project/node_modules/
+
+# builds
+frontend/vite-project/dist/
+frontend/vite-project/.vite/
+
+# credenciais e configs locais
+*.env
+backend/.env
+frontend/.env
+frontend/vite-project/.env
+
+# sistema / IDE
+.DS_Store
+Thumbs.db
+.vscode/
