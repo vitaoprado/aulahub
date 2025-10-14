@@ -121,6 +121,83 @@ app.get('/private', auth, async (req, res) => {
   });
 });
 
+// --- Helpers para o mural ---
+function tryGetUserFromHeader(req) {
+  try {
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) return null;
+    return jwt.verify(token, JWT_SECRET);
+  } catch {
+    return null;
+  }
+}
+
+// --- Mural: listar mensagens ---
+app.get('/mural', async (req, res) => {
+  try {
+    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 50));
+    const q = await pool.query(
+      `SELECT id, name, content, created_at
+       FROM mural_messages
+       ORDER BY created_at DESC
+       LIMIT $1`,
+      [limit]
+    );
+    return res.json(q.rows);
+  } catch (e) {
+    console.error('Erro GET /mural', e);
+    return res.status(500).json({ error: 'Erro ao listar recados' });
+  }
+});
+
+// --- Mural: criar mensagem ---
+app.post('/mural', async (req, res) => {
+  try {
+    const { name, content } = req.body || {};
+    const text = (content || '').trim();
+    const displayName = (name || '').trim() || 'Anônimo';
+    if (text.length < 1 || text.length > 1000) {
+      return res.status(400).json({ error: 'Mensagem deve ter entre 1 e 1000 caracteres' });
+    }
+
+    const u = tryGetUserFromHeader(req);
+    const userId = u?.id || null;
+    const ip = req.ip || null;
+
+    const insert = await pool.query(
+      `INSERT INTO mural_messages (name, content, user_id, ip)
+       VALUES ($1,$2,$3,$4)
+       RETURNING id, name, content, created_at`,
+      [displayName, text, userId, ip]
+    );
+    return res.status(201).json(insert.rows[0]);
+  } catch (e) {
+    console.error('Erro POST /mural', e);
+    return res.status(500).json({ error: 'Erro ao salvar recado' });
+  }
+});
+
+// --- Mural: apagar mensagem (somente dono ou anônimas) ---
+app.delete('/mural/:id', auth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'ID inválido' });
+
+    const q = await pool.query('SELECT user_id FROM mural_messages WHERE id=$1', [id]);
+    if (!q.rowCount) return res.status(404).json({ error: 'Não encontrado' });
+    const owner = q.rows[0].user_id;
+    if (owner && owner !== req.user.id) {
+      return res.status(403).json({ error: 'Sem permissão' });
+    }
+    await pool.query('DELETE FROM mural_messages WHERE id=$1', [id]);
+    return res.status(204).send();
+  } catch (e) {
+    console.error('Erro DELETE /mural/:id', e);
+    return res.status(500).json({ error: 'Erro ao remover recado' });
+  }
+});
+
 // --- Sobe o servidor ---
 app.listen(PORT, () => {
   console.log(`API rodando em http://localhost:${PORT}`);
