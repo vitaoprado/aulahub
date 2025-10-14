@@ -160,3 +160,39 @@ body::before{
   transform: scale(1.04);    /* leve zoom */
   filter: brightness(1.06);  /* leve brilho */
 }
+/* ====== Botão Ghost (variante) ====== */
+.btn--ghost{
+  background: transparent;
+  color: var(--text);
+  box-shadow: 0 0 0 2px var(--purple), 0 0 0 0 rgba(0,0,0,0);
+}
+.btn--ghost:hover{
+  box-shadow: 0 0 0 2px var(--purple), 0 0 18px var(--purple-ghost);
+}
+/* ====== Mural ====== */
+.mural{
+  margin-bottom: 24px;
+}
+.mural__header{
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.mural__title{ margin: 0; font-size: 20px; }
+.mural__meta{ color: var(--muted); font-size: 14px; }
+.mural-form{ display: grid; gap: 10px; }
+.mural-form__row{ }
+.mural-form__textarea{ resize: vertical; min-height: 80px; }
+.mural-form__actions{ display: flex; gap: 8px; }
+.mural-list{ list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 10px; }
+.mural-item{
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(0,0,0,.18);
+}
+.mural-item__header{ display: flex; gap: 8px; align-items: baseline; margin-bottom: 6px; }
+.mural-item__author{ font-weight: 800; }
+.mural-item__date{ color: var(--muted); font-size: 12px; }
+.mural-item__text{ margin: 0; white-space: pre-wrap; }
