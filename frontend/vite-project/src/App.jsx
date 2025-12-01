@@ -5,39 +5,49 @@ import Home from './pages/Home.jsx';
 import Login from './pages/Login.jsx';
 import Cadastrar from './pages/Cadastrar.jsx';
 import AulasAluno from './pages/AulasAluno.jsx';
-
-import ProtectedRoute from './components/ProtectedRoute.jsx';
 import AulaDetalhe from './components/AulaDetalhe.jsx';
-
-import { AuthProvider } from './state/AuthContext.jsx';
+import ProtectedRoute from './components/ProtectedRoute.jsx';
+import Header from './components/Header.jsx';
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Routes>
-        {/* Home + mural + cadastro de aula + grid */}
-        <Route path="/" element={<Home />} />
+    <>
+      {/* Menu fixo no topo */}
+      <Header />
 
-        {/* Login / Cadastrar */}
-        <Route path="/login" element={<Login />} />
-        <Route path="/cadastrar" element={<Cadastrar />} />
+      {/* Conteúdo das páginas */}
+      <main
+        style={{
+          maxWidth: 1120,
+          margin: '0 auto',
+          padding: '16px 12px 32px'
+        }}
+      >
+        <Routes>
+          {/* Home (mural + aulas + cadastro de aula) */}
+          <Route path="/" element={<Home />} />
 
-        {/* Área protegida do aluno */}
-        <Route
-          path="/aulas-aluno"
-          element={
-            <ProtectedRoute>
-              <AulasAluno />
-            </ProtectedRoute>
-          }
-        />
+          {/* Login / Cadastro */}
+          <Route path="/login" element={<Login />} />
+          <Route path="/cadastrar" element={<Cadastrar />} />
 
-        {/* Detalhe da Aula */}
-        <Route path="/aula/:id" element={<AulaDetalhe />} />
+          {/* Área protegida do aluno */}
+          <Route
+            path="/aulas-aluno"
+            element={
+              <ProtectedRoute>
+                <AulasAluno />
+              </ProtectedRoute>
+            }
+          />
 
-        {/* Fallback */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </AuthProvider>
+          {/* Detalhe da aula (pode ser acessada por qualquer um) */}
+          <Route path="/aula/:id" element={<AulaDetalhe />} />
+
+          {/* Qualquer rota desconhecida volta para Home */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </main>
+    </>
   );
 }

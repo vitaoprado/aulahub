@@ -4,6 +4,7 @@ import cors from 'cors';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import pkg from 'pg';
+
 const { Pool } = pkg;
 
 // --- App / Middlewares ---
@@ -65,10 +66,12 @@ app.post('/usuarios', async (req, res) => {
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'name, email e password são obrigatórios' });
     }
+
     const exist = await pool.query('SELECT id FROM users WHERE email=$1', [email]);
     if (exist.rowCount) {
       return res.status(409).json({ error: 'Email já cadastrado' });
     }
+
     const hash = await bcrypt.hash(password, 10);
     const insert = await pool.query(
       `INSERT INTO users (name, email, password_hash)
@@ -92,6 +95,7 @@ app.post('/login', async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({ error: 'email e password são obrigatórios' });
     }
+
     const q = await pool.query(
       'SELECT id, name, email, password_hash FROM users WHERE email=$1',
       [email]
@@ -99,13 +103,18 @@ app.post('/login', async (req, res) => {
     if (!q.rowCount) {
       return res.status(401).json({ error: 'Credenciais inválidas' });
     }
+
     const user = q.rows[0];
     const ok = await bcrypt.compare(password, user.password_hash);
     if (!ok) {
       return res.status(401).json({ error: 'Credenciais inválidas' });
     }
+
     const token = signToken(user);
-    return res.json({ user: { id: user.id, name: user.name, email: user.email }, token });
+    return res.json({
+      user: { id: user.id, name: user.name, email: user.email },
+      token
+    });
   } catch (e) {
     console.error('Erro /login', e);
     return res.status(500).json({ error: 'Erro ao logar' });
@@ -143,12 +152,15 @@ app.post('/mural', async (req, res) => {
     const { name, content } = req.body || {};
     const text = (content || '').trim();
     const displayName = (name || '').trim() || 'Anônimo';
+
     if (text.length < 1 || text.length > 1000) {
       return res.status(400).json({ error: 'Mensagem deve ter entre 1 e 1000 caracteres' });
     }
+
     const u = tryGetUserFromHeader(req);
     const userId = u?.id || null;
     const ip = req.ip || null;
+
     const insert = await pool.query(
       `INSERT INTO mural_messages (name, content, user_id, ip)
        VALUES ($1,$2,$3,$4)
@@ -167,12 +179,15 @@ app.delete('/mural/:id', auth, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'ID inválido' });
+
     const q = await pool.query('SELECT user_id FROM mural_messages WHERE id=$1', [id]);
     if (!q.rowCount) return res.status(404).json({ error: 'Não encontrado' });
+
     const owner = q.rows[0].user_id;
     if (owner && owner !== req.user.id) {
       return res.status(403).json({ error: 'Sem permissão' });
     }
+
     await pool.query('DELETE FROM mural_messages WHERE id=$1', [id]);
     return res.status(204).send();
   } catch (e) {
@@ -193,6 +208,7 @@ async function ensureLessonsSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
+
   // lesson_slides (12 por aula)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS lesson_slides (
@@ -204,7 +220,20 @@ async function ensureLessonsSchema() {
       UNIQUE (lesson_id, slide_no)
     );
   `);
+
+  // progresso do aluno nas aulas (você já criou essa tabela via SQL, mas aqui garante idempotência)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS lesson_progress (
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      lesson_id BIGINT NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
+      completed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, lesson_id)
+    );
+  `);
+
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_lessons_created_at ON lessons(created_at DESC);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_progress_user ON lesson_progress(user_id);`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_progress_lesson ON lesson_progress(lesson_id);`);
 }
 
 // Lista aulas para o grid
@@ -228,7 +257,10 @@ app.get('/lessons/:id', async (req, res) => {
     const id = parseInt(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'ID inválido' });
 
-    const aula = await pool.query('SELECT id, title, created_at FROM lessons WHERE id=$1', [id]);
+    const aula = await pool.query(
+      'SELECT id, title, created_at FROM lessons WHERE id=$1',
+      [id]
+    );
     if (!aula.rowCount) return res.status(404).json({ error: 'Aula não encontrada' });
 
     const slides = await pool.query(
@@ -258,6 +290,7 @@ app.post('/lessons', async (req, res) => {
     if (!Array.isArray(slides) || slides.length !== 12) {
       return res.status(400).json({ error: 'slides deve ser um array de 12 textos' });
     }
+
     const hasContent = slides.some(s => (s || '').trim().length > 0);
     if (!hasContent) {
       return res.status(400).json({ error: 'Preencha ao menos um slide' });
@@ -301,10 +334,72 @@ app.post('/lessons', async (req, res) => {
   }
 });
 
+// ===================== PROGRESSO DO ALUNO =====================
+
+// Lista progresso do aluno logado (quais aulas ele concluiu)
+app.get('/me/lessons-progress', auth, async (req, res) => {
+  try {
+    const q = await pool.query(
+      `SELECT lp.lesson_id, lp.completed_at, l.title
+         FROM lesson_progress lp
+         JOIN lessons l ON l.id = lp.lesson_id
+        WHERE lp.user_id = $1
+        ORDER BY lp.completed_at DESC`,
+      [req.user.id]
+    );
+    return res.json(q.rows);
+  } catch (e) {
+    console.error('Erro GET /me/lessons-progress', e);
+    return res.status(500).json({ error: 'Erro ao listar progresso' });
+  }
+});
+
+// Marca aula como concluída para o aluno logado
+app.post('/lessons/:id/progress', auth, async (req, res) => {
+  const lessonId = parseInt(req.params.id);
+  if (!Number.isFinite(lessonId)) {
+    return res.status(400).json({ error: 'ID inválido' });
+  }
+
+  try {
+    const inserted = await pool.query(
+      `INSERT INTO lesson_progress (user_id, lesson_id, completed_at)
+       VALUES ($1, $2, now())
+       ON CONFLICT (user_id, lesson_id)
+       DO UPDATE SET completed_at = EXCLUDED.completed_at
+       RETURNING lesson_id, completed_at`,
+      [req.user.id, lessonId]
+    );
+    return res.status(201).json(inserted.rows[0]);
+  } catch (e) {
+    console.error('Erro POST /lessons/:id/progress', e);
+    return res.status(500).json({ error: 'Erro ao salvar progresso' });
+  }
+});
+
+// Remove marcação de concluída
+app.delete('/lessons/:id/progress', auth, async (req, res) => {
+  const lessonId = parseInt(req.params.id);
+  if (!Number.isFinite(lessonId)) {
+    return res.status(400).json({ error: 'ID inválido' });
+  }
+
+  try {
+    await pool.query(
+      'DELETE FROM lesson_progress WHERE user_id=$1 AND lesson_id=$2',
+      [req.user.id, lessonId]
+    );
+    return res.status(204).send();
+  } catch (e) {
+    console.error('Erro DELETE /lessons/:id/progress', e);
+    return res.status(500).json({ error: 'Erro ao remover progresso' });
+  }
+});
+
 // ===================== BOOT / START =====================
 async function init() {
   try {
-    await ensureLessonsSchema(); // garante tabelas de aula/slides
+    await ensureLessonsSchema(); // garante tabelas de aula/slides/progresso
     app.listen(PORT, () => {
       console.log(`API rodando em http://localhost:${PORT}`);
     });

@@ -1,5 +1,183 @@
 # AulaHUB — TCC IMPACTA
+_______________________
+AC4 _______________________
 
+# AulaHUB
+
+Plataforma simples para gerenciamento de aulas, mural de recados e acompanhamento de progresso. Stack: Node.js + Express + PostgreSQL + React (Vite).
+
+## Visao geral (features)
+- Autenticacao (cadastro/login) com JWT e rota protegida de exemplo.
+- Mural de recados (listar, postar, apagar o proprio recado).
+- Aulas/Slides: cadastro de aula com 12 slides via senha do professor (sem login), listagem e detalhe.
+- Progresso do aluno: marcar/desmarcar aula como concluida e listar progresso do usuario logado.
+- Frontend: SPA com Home (mural + cadastro + grid), detalhe da aula, login/cadastro e rota protegida de aluno.
+
+## Requisitos
+- Node 18+
+- PostgreSQL 14+
+- npm 9+ (ou yarn/pnpm)
+
+## Config do ambiente
+### Backend (`backend/.env`)
+DATABASE_URL=postgres://postgres:SUA_SENHA@localhost:5432/aulahub
+JWT_SECRET=um-segredo
+PORT=5050
+TEACHER_PASS=AdmProfessorOK # senha exigida no POST /lessons
+
+
+
+### Frontend (`frontend/vite-project/.env`, opcional)
+VITE_API_URL=http://localhost:5050
+
+
+
+## Como rodar
+### Backend
+```bash
+cd backend
+npm install
+npm run dev   # http://localhost:5050
+# healthcheck: GET /health -> {"ok":true}
+Frontend
+bash
+
+cd frontend/vite-project
+npm install
+npm run dev   # http://localhost:5173
+Banco de dados (schemas principais)
+sql
+
+CREATE TABLE IF NOT EXISTS users (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS mural_messages (
+  id BIGSERIAL PRIMARY KEY,
+  name TEXT NULL,
+  content TEXT NOT NULL CHECK (char_length(content) BETWEEN 1 AND 1000),
+  user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+  ip INET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS lessons (
+  id BIGSERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS lesson_slides (
+  id BIGSERIAL PRIMARY KEY,
+  lesson_id BIGINT NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
+  slide_no SMALLINT NOT NULL CHECK (slide_no BETWEEN 1 AND 12),
+  content TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (lesson_id, slide_no)
+);
+
+CREATE TABLE IF NOT EXISTS lesson_progress (
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  lesson_id BIGINT NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
+  completed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, lesson_id)
+);
+Indices criados: idx_lessons_created_at, idx_progress_user, idx_progress_lesson.
+
+API (backend server.js)
+Auth:
+POST /usuarios — cadastra usuario {name,email,password}.
+POST /login — autentica e retorna { user, token }.
+GET /private — exemplo de rota protegida (Bearer token).
+Mural:
+GET /mural?limit=50 — lista recados (mais recentes primeiro).
+POST /mural — cria recado { name?, content } (com ou sem login).
+DELETE /mural/:id — remove recado (dono logado).
+Aulas/Slides:
+GET /lessons — lista aulas (id, title, created_at).
+GET /lessons/:id — aula + array de 12 slides.
+POST /lessons — cria aula (senha do professor obrigatoria):
+json
+
+{ "password": "AdmProfessorOK", "title": "Opcional", "slides": ["s1", ... "s12"] }
+Progresso do aluno:
+GET /me/lessons-progress — aulas concluidas pelo usuario logado.
+POST /lessons/:id/progress — marca aula como concluida (upsert).
+DELETE /lessons/:id/progress — remove marca de concluida.
+Exemplos cURL rapidos:
+
+bash
+
+# listar mural
+curl http://localhost:5050/mural
+
+# criar recado
+curl -X POST http://localhost:5050/mural -H "Content-Type: application/json" \
+  -d '{"name":"Ana","content":"Oi equipe"}'
+
+# criar aula (senha ok)
+curl -X POST http://localhost:5050/lessons -H "Content-Type: application/json" \
+  -d '{"password":"AdmProfessorOK","slides":["a","b","c","d","e","f","g","h","i","j","k","l"]}'
+Frontend (React/Vite)
+Rotas principais (src/App.jsx):
+
+/ Home — mural, cadastro de aula (12 slides + senha), grid de aulas.
+/aula/:id — detalhe da aula (seleciona slide para visualizar).
+/login — login; redireciona se ja logado.
+/cadastrar — cadastro de usuario.
+/aulas-aluno — rota protegida (exibe aulas do aluno/progresso).
+Componentes-chave:
+
+components/Mural.jsx — lista/envia recados.
+components/CadastroAula.jsx — formulario de 12 slides + senha do professor.
+components/GridAulas.jsx — cards de aulas.
+components/AulaDetalhe.jsx — visualizacao de slides.
+components/Header.jsx — nav com status de login/logout.
+pages/AulasAluno.jsx — exemplo de rota protegida usando token.
+Auth Context: state/AuthContext.jsx armazena user + token (localStorage), oferece login/logout e ProtectedRoute.jsx.
+
+Estilos principais: src/index.css, src/App.css (tema espacial com cards).
+
+Estrutura do projeto
+
+backend/
+  server.js
+  package.json
+  .env.example
+frontend/vite-project/
+  src/
+    components/ (Mural, CadastroAula, GridAulas, AulaDetalhe, Header, ProtectedRoute)
+    pages/ (Home, Login, Cadastrar, AulasAluno)
+    state/AuthContext.jsx
+    App.jsx, main.jsx, index.css, App.css
+Fluxos de teste rapidos
+Suba backend e frontend.
+Home: enviar recado e ver listagem atualizada.
+Cadastro/Login: criar usuario, logar, acessar /aulas-aluno (deve permitir).
+Criar aula: preencher alguns slides, senha AdmProfessorOK, confirmar; grid deve mostrar nova aula; abrir /aula/:id.
+Progresso: logado, POST /lessons/:id/progress deve marcar aula; GET /me/lessons-progress lista; DELETE /lessons/:id/progress limpa.
+Erro de senha: POST /lessons com senha errada retorna 401 SENHA INCORRETA e nada muda no DB.
+Notas de seguranca
+Nao exponha TEACHER_PASS no frontend.
+Restrinja CORS e variaveis de ambiente em producao.
+Tokens JWT expiram em 2h; renove via login.
+Changelog resumido
+AC1: auth (cadastro/login), rota protegida, tema base.
+AC2: mural de recados (API + UI) e tabela mural_messages.
+AC3: aulas/slides (tabelas lessons/lesson_slides), endpoints GET/POST, UI de cadastro e detalhe.
+Novo: progresso do aluno (tabela lesson_progress + endpoints) e integrações no front.
+
+
+
+
+
+
+__________________________
+___________________________
 Plataforma simples para gerenciamento de aulas com autenticação, mural de recados e **cadastro/visualização de aulas** (AC3).  
 Stack: **Node.js + Express + PostgreSQL + React (Vite)**.
 
